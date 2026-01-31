@@ -56,7 +56,7 @@ def blur_region(image, box):
     image[y1:y2, x1:x2] = blurred_roi
     return image
 
-def draw_debug(image, face_box, person_box, gender, conf, is_tracked_female=False):
+def draw_debug(image, face_box, person_box, gender, conf, is_tracked_female=False, track_id=None):
     """Draws debug bounding boxes and labels."""
     # Draw Face if present
     if face_box:
@@ -71,13 +71,18 @@ def draw_debug(image, face_box, person_box, gender, conf, is_tracked_female=Fals
         px1, py1, px2, py2 = person_box
         p_color = (0, 0, 255) if is_tracked_female else (0, 255, 0) # Red if flagged as female
         cv2.rectangle(image, (px1, py1), (px2, py2), p_color, 2)
+        
+        id_label = f"ID:{track_id}" if track_id is not None else "ID:?"
         if is_tracked_female:
-            cv2.putText(image, "MEM: FEMALE", (px1, py2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, p_color, 2)
+            cv2.putText(image, f"{id_label} FEMALE", (px1, py1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, p_color, 2)
+        else:
+            cv2.putText(image, id_label, (px1, py1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, p_color, 2)
 
 class GlobalTrackManager:
-    def __init__(self):
+    def __init__(self, sensitivity=0.15):
         self.track_gender_votes = {} # id -> {'Male': count, 'Female': count}
         self.final_decisions = {} # id -> 'Male' or 'Female'
+        self.sensitivity = sensitivity
 
     def add_vote(self, track_id, gender):
         if track_id is None: return
@@ -93,15 +98,15 @@ class GlobalTrackManager:
             if total == 0: continue
             
             female_ratio = votes['Female'] / total
-            # Heuristic: If > 30% of valid face detections say Female, treat as Female
-            # This is conservative to ensure we don't miss blurring.
-            if female_ratio > 0.3:
+            # Heuristic: If > sensitivity ratio of valid face detections say Female, treat as Female
+            # Lowering this makes the system more "halal" (aggressive blurring).
+            if female_ratio >= self.sensitivity:
                 self.final_decisions[tid] = 'Female'
             else:
                 self.final_decisions[tid] = 'Male'
-            print(f"Track {tid}: {votes} -> {self.final_decisions[tid]} ({female_ratio:.2f})")
+            print(f"Track {tid}: {votes} -> {self.final_decisions[tid]} ({female_ratio:.2f} >= {self.sensitivity})")
 
-def process_video(input_path, output_path, conf_threshold=0.25, start_seconds=0, duration_seconds=None, debug=False):
+def process_video(input_path, output_path, conf_threshold=0.25, start_seconds=0, duration_seconds=None, debug=False, **kwargs):
     setup_models()
     
     print("Loading models...")
@@ -114,7 +119,7 @@ def process_video(input_path, output_path, conf_threshold=0.25, start_seconds=0,
         return
 
     gender_list = ['Male', 'Female']
-    global_tracker = GlobalTrackManager()
+    global_tracker = GlobalTrackManager(sensitivity=kwargs.get('sensitivity', 0.15))
     
     cap = cv2.VideoCapture(input_path)
     if not cap.isOpened():
@@ -222,11 +227,11 @@ def process_video(input_path, output_path, conf_threshold=0.25, start_seconds=0,
                 
                 if gender_decision == 'Female':
                     if debug:
-                        draw_debug(frame, None, box, "TRACK-FEMALE", 1.0, True)
+                        draw_debug(frame, None, box, None, 1.0, True, track_id=track_id)
                     else:
                         frame = blur_region(frame, box)
                 elif debug:
-                     draw_debug(frame, None, box, f"ID:{track_id}", 0.0, False)
+                     draw_debug(frame, None, box, None, 0.0, False, track_id=track_id)
 
         out.write(frame)
         frame_count += 1
@@ -274,7 +279,8 @@ def halalify(input_path, output_path, audio_path=None, **kwargs):
                   conf_threshold=kwargs.get('conf', 0.25),
                   start_seconds=kwargs.get('start', 0),
                   duration_seconds=kwargs.get('duration'),
-                  debug=kwargs.get('debug', False))
+                  debug=kwargs.get('debug', False),
+                  sensitivity=kwargs.get('sensitivity', 0.15))
     
     # 2. Process Audio (Remove Music)
     print("\n--- Audio Processing: Removing Music ---")
@@ -338,6 +344,7 @@ if __name__ == "__main__":
     parser.add_argument("--preview", action="store_true", help="Extract 10 random frames from the output for verification")
     parser.add_argument("--debug", action="store_true", help="Draw bounding boxes instead of blurring for debugging")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold for detections")
+    parser.add_argument("--sensitivity", type=float, default=0.15, help="Gender sensitivity (lower = more blurring, default 0.15)")
     parser.add_argument("--audio", help="Optional separate audio file to use (e.g. m4a from youtube)")
     args = parser.parse_args()
     
@@ -354,6 +361,7 @@ if __name__ == "__main__":
         halalify(args.input_video, args.output, 
                  audio_path=args.audio,
                  conf=args.conf, 
+                 sensitivity=args.sensitivity,
                  start=start, 
                  duration=duration, 
                  debug=args.debug)
