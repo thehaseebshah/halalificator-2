@@ -11,4 +11,6 @@ dependencies = [
     "open-clip-torch>=2.32.0",
     "demucs>=4.0.1",
     "static-ffmpeg>=3.0",
+    "flask>=3.0.0",
 ]
+

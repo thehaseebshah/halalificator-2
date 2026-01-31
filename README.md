@@ -97,5 +97,28 @@ python process_video.py "path/to/downloaded_video.mp4" --duration 30 --output ou
 
 ---
 
+## 🌐 Web Interface & Public Deployment
+
+Halalificator now includes a modern web interface for easy uploading and real-time processing feedback.
+
+### 1. Start the Web Server
+To run the server in production mode (using Gunicorn):
+```bash
+chmod +x start_server.sh
+./start_server.sh
+```
+The app will be available locally at `http://localhost:5000`.
+
+### 2. Make it Public (Ngrok)
+To share the app with others without configuring complex router settings, use the included ngrok script:
+1. Get a free auth token from [ngrok.com](https://dashboard.ngrok.com/get-started/your-authtoken).
+2. Start the tunnel:
+   ```bash
+   python start_tunnel.py YOUR_NGROK_AUTH_TOKEN
+   ```
+3. Copy the `https://...` link provided in the console.
+
+---
+
 ## ⚠️ Disclaimer
 This tool is intended for personal and educational use in automating content preferences. Accuracy of AI models is not 100%; always use the `--preview` or `--debug` modes to verify results before final deployment.

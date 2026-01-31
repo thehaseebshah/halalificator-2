@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Halalificator - AI Video Processing</title>
+    <meta name="description" content="AI-powered video processing: blur individuals and remove music automatically">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Background Effects -->
+        <div class="bg-gradient"></div>
+        <div class="bg-blur-orb orb-1"></div>
+        <div class="bg-blur-orb orb-2"></div>
+        <div class="bg-blur-orb orb-3"></div>
+
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">🎥</span>
+                <span class="logo-text">Halalificator</span>
+            </div>
+            <p class="tagline">AI-Powered Video Processing</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Upload Section -->
+            <section id="upload-section" class="card upload-card">
+                <div class="card-header">
+                    <h2>Upload Video</h2>
+                    <p class="subtitle">Drag & drop or click to select a video file</p>
+                </div>
+                
+                <div id="drop-zone" class="drop-zone">
+                    <div class="drop-zone-content">
+                        <div class="upload-icon">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                        </div>
+                        <p class="upload-text">Drop your video here</p>
+                        <p class="upload-subtext">MP4, MKV, AVI, MOV, WebM supported (max 500MB)</p>
+                    </div>
+                    <input type="file" id="file-input" accept=".mp4,.mkv,.avi,.mov,.webm,.m4v" hidden>
+                </div>
+
+                <!-- Selected File Info -->
+                <div id="file-info" class="file-info hidden">
+                    <div class="file-icon">📄</div>
+                    <div class="file-details">
+                        <span id="file-name" class="file-name"></span>
+                        <span id="file-size" class="file-size"></span>
+                    </div>
+                    <button id="clear-file" class="btn-icon" title="Remove file">✕</button>
+                </div>
+
+                <!-- Options Panel -->
+                <div class="options-panel">
+                    <h3>Processing Options</h3>
+                    <div class="options-grid">
+                        <div class="option-group">
+                            <label for="mode">Detection Mode</label>
+                            <select id="mode" class="select-input">
+                                <option value="clip" selected>CLIP (Recommended)</option>
+                                <option value="caffe">Caffe (Face-based)</option>
+                            </select>
+                        </div>
+                        <div class="option-group">
+                            <label for="sensitivity">Sensitivity</label>
+                            <div class="range-container">
+                                <input type="range" id="sensitivity" min="0.05" max="0.5" step="0.05" value="0.15">
+                                <span id="sensitivity-value" class="range-value">0.15</span>
+                            </div>
+                            <span class="option-hint">Lower = more blurring</span>
+                        </div>
+                        <div class="option-group">
+                            <label for="duration">Duration</label>
+                            <select id="duration" class="select-input">
+                                <option value="full" selected>Full Video</option>
+                                <option value="5">First 5 seconds (test)</option>
+                                <option value="10">First 10 seconds</option>
+                                <option value="30">First 30 seconds</option>
+                            </select>
+                        </div>
+                        <div class="option-group checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="debug">
+                                <span class="checkbox-custom"></span>
+                                Debug Mode (show boxes)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upload Button -->
+                <button id="process-btn" class="btn btn-primary" disabled>
+                    <span class="btn-text">Process Video</span>
+                    <span class="btn-icon-right">→</span>
+                </button>
+            </section>
+
+            <!-- Processing Section -->
+            <section id="processing-section" class="card processing-card hidden">
+                <div class="card-header">
+                    <h2>Processing</h2>
+                    <p id="processing-filename" class="subtitle"></p>
+                </div>
+
+                <div class="progress-container">
+                    <div class="progress-ring">
+                        <svg class="progress-ring-svg" viewBox="0 0 120 120">
+                            <circle class="progress-ring-bg" cx="60" cy="60" r="54"/>
+                            <circle class="progress-ring-bar" cx="60" cy="60" r="54"/>
+                        </svg>
+                        <div class="progress-ring-content">
+                            <span id="progress-percent" class="progress-percent">0%</span>
+                        </div>
+                    </div>
+                    <div class="progress-info">
+                        <div id="progress-status" class="progress-status">Initializing...</div>
+                        <div id="progress-message" class="progress-message"></div>
+                    </div>
+                </div>
+
+                <div class="processing-steps">
+                    <div class="step" id="step-upload">
+                        <span class="step-icon">📤</span>
+                        <span class="step-text">Upload</span>
+                        <span class="step-status">●</span>
+                    </div>
+                    <div class="step" id="step-analyze">
+                        <span class="step-icon">🔍</span>
+                        <span class="step-text">Analyze</span>
+                        <span class="step-status">○</span>
+                    </div>
+                    <div class="step" id="step-blur">
+                        <span class="step-icon">🛡️</span>
+                        <span class="step-text">Blur</span>
+                        <span class="step-status">○</span>
+                    </div>
+                    <div class="step" id="step-audio">
+                        <span class="step-icon">🎵</span>
+                        <span class="step-text">Audio</span>
+                        <span class="step-status">○</span>
+                    </div>
+                    <div class="step" id="step-complete">
+                        <span class="step-icon">✅</span>
+                        <span class="step-text">Done</span>
+                        <span class="step-status">○</span>
+                    </div>
+                </div>
+
+                <button id="cancel-btn" class="btn btn-secondary">
+                    Cancel
+                </button>
+            </section>
+
+            <!-- Result Section -->
+            <section id="result-section" class="card result-card hidden">
+                <div class="card-header">
+                    <h2>Processing Complete!</h2>
+                    <p class="subtitle">Your video has been halalified</p>
+                </div>
+
+                <div class="video-preview">
+                    <video id="result-video" controls playsinline>
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+
+                <div class="result-actions">
+                    <button id="download-btn" class="btn btn-primary">
+                        <span class="btn-icon-left">⬇</span>
+                        <span class="btn-text">Download Video</span>
+                    </button>
+                    <button id="new-video-btn" class="btn btn-secondary">
+                        Process Another Video
+                    </button>
+                </div>
+            </section>
+
+            <!-- Error Section -->
+            <section id="error-section" class="card error-card hidden">
+                <div class="error-icon">⚠️</div>
+                <h2>Processing Failed</h2>
+                <p id="error-message" class="error-message"></p>
+                <button id="retry-btn" class="btn btn-primary">
+                    Try Again
+                </button>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Halalificator v2.0 | AI-Powered Video Processing</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

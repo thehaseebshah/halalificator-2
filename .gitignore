@@ -11,6 +11,21 @@ wheels/
 
 # Large media & models
 *.mp4
+*.mkv
+*.avi
+*.mov
+*.webm
+*.m4a
+*.m4v
+*.wav
 *.pt
 *.caffemodel
 *.prototxt
+
+# Project data
+inputs/
+outputs/
+separated/
+uploads/
+run_log.txt
+*.part
