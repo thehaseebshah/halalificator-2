@@ -11,6 +11,13 @@ import shutil
 import subprocess
 from process_audio import remove_music
 from static_ffmpeg import add_paths
+try:
+    import torch
+    import open_clip
+    from PIL import Image
+except ImportError:
+    torch = None
+    open_clip = None
 
 # Model Configurations
 FACE_MODEL_URL = "https://huggingface.co/arnabdhar/YOLOv8-Face-Detection/resolve/main/model.pt"
@@ -33,10 +40,11 @@ def download_file(url, filename):
     else:
         print(f"Found {filename}.")
 
-def setup_models():
+def setup_models(mode='caffe'):
     download_file(FACE_MODEL_URL, FACE_MODEL_NAME)
-    download_file(GENDER_PROTO_URL, GENDER_PROTO)
-    download_file(GENDER_MODEL_URL, GENDER_MODEL)
+    if mode == 'caffe':
+        download_file(GENDER_PROTO_URL, GENDER_PROTO)
+        download_file(GENDER_MODEL_URL, GENDER_MODEL)
 
 def blur_region(image, box):
     """Applies a Gaussian blur to the specified bounding box region."""
@@ -106,14 +114,28 @@ class GlobalTrackManager:
                 self.final_decisions[tid] = 'Male'
             print(f"Track {tid}: {votes} -> {self.final_decisions[tid]} ({female_ratio:.2f} >= {self.sensitivity})")
 
-def process_video(input_path, output_path, conf_threshold=0.25, start_seconds=0, duration_seconds=None, debug=False, **kwargs):
-    setup_models()
+def process_video(input_path, output_path, conf_threshold=0.25, start_seconds=0, duration_seconds=None, debug=False, mode='clip', **kwargs):
+    setup_models(mode=mode)
     
-    print("Loading models...")
+    print(f"Loading models (mode={mode})...")
+    device = "cuda" if torch and torch.cuda.is_available() else "cpu"
     try:
         face_model = YOLO(FACE_MODEL_NAME)
         person_model = YOLO("yolov8n.pt") 
-        gender_net = cv2.dnn.readNet(GENDER_PROTO, GENDER_MODEL)
+        
+        gender_net = None
+        clip_model = None
+        clip_preprocess = None
+        clip_tokenizer = None
+        
+        if mode == 'caffe':
+            gender_net = cv2.dnn.readNet(GENDER_PROTO, GENDER_MODEL)
+        elif mode == 'clip':
+            if open_clip is None:
+                raise ImportError("open_clip not installed.")
+            clip_model, _, clip_preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k', device=device)
+            clip_tokenizer = open_clip.get_tokenizer('ViT-B-32')
+            
     except Exception as e:
         print(f"Model loading failed: {e}")
         return
@@ -163,28 +185,47 @@ def process_video(input_path, output_path, conf_threshold=0.25, start_seconds=0,
                 current_boxes.append(box)
                 current_ids.append(track_id)
                 
-            # Detect Faces
-            face_results = face_model(frame, verbose=False, conf=conf_threshold)
-            
-            for result in face_results:
-                for box in result.boxes:
-                    bx1, by1, bx2, by2 = map(int, box.xyxy[0])
-                    face_cx, face_cy = (bx1+bx2)/2, (by1+by2)/2
-                    
-                    # Check gender
-                    face_img = frame[max(0,by1):min(height,by2), max(0,bx1):min(width,bx2)]
-                    if face_img.size > 0:
-                        blob = cv2.dnn.blobFromImage(face_img, 1.0, (227, 227), (78.4263377603, 87.7689143744, 114.895847746), swapRB=False)
-                        gender_net.setInput(blob)
-                        preds = gender_net.forward()
-                        gender = gender_list[preds[0].argmax()]
+            if mode == 'clip':
+                # --- CLIP PERSON CLASSIFICATION ---
+                text_prompts = clip_tokenizer(["a photo of a man", "a photo of a woman"]).to(device)
+                
+                for i, (px1, py1, px2, py2) in enumerate(current_boxes):
+                    # Crop person
+                    person_img = frame[max(0,py1):min(height,py2), max(0,px1):min(width,px2)]
+                    if person_img.size > 0:
+                        # Convert to PIL for CLIP
+                        person_pil = Image.fromarray(cv2.cvtColor(person_img, cv2.COLOR_BGR2RGB))
+                        image_input = clip_preprocess(person_pil).unsqueeze(0).to(device)
                         
-                        # Match to Track ID
-                        for i, (px1, py1, px2, py2) in enumerate(current_boxes):
-                            h_margin = (py2 - py1) * 0.2
-                            if px1 <= face_cx <= px2 and (py1 - h_margin) <= face_cy <= py2:
-                                global_tracker.add_vote(current_ids[i], gender)
-                                break
+                        with torch.no_grad():
+                            image_features = clip_model.encode_image(image_input)
+                            text_features = clip_model.encode_text(text_prompts)
+                            
+                            logits_per_image = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+                            probs = logits_per_image.cpu().numpy()[0]
+                            
+                            gender = 'Male' if probs[0] > probs[1] else 'Female'
+                            global_tracker.add_vote(current_ids[i], gender)
+            else:
+                # --- FACE-BASED DETECTION (Caffe) ---
+                face_results = face_model(frame, verbose=False, conf=conf_threshold)
+                for result in face_results:
+                    for box in result.boxes:
+                        bx1, by1, bx2, by2 = map(int, box.xyxy[0])
+                        face_cx, face_cy = (bx1+bx2)/2, (by1+by2)/2
+                        
+                        face_img = frame[max(0,by1):min(height,by2), max(0,bx1):min(width,bx2)]
+                        if face_img.size > 0:
+                            blob = cv2.dnn.blobFromImage(face_img, 1.0, (227, 227), (78.4263377603, 87.7689143744, 114.895847746), swapRB=False)
+                            gender_net.setInput(blob)
+                            preds = gender_net.forward()
+                            gender = gender_list[preds[0].argmax()]
+                            
+                            for i, (px1, py1, px2, py2) in enumerate(current_boxes):
+                                h_margin = (py2 - py1) * 0.2
+                                if px1 <= face_cx <= px2 and (py1 - h_margin) <= face_cy <= py2:
+                                    global_tracker.add_vote(current_ids[i], gender)
+                                    break
         
         frame_count += 1
         if frame_count % 50 == 0:
@@ -280,7 +321,8 @@ def halalify(input_path, output_path, audio_path=None, **kwargs):
                   start_seconds=kwargs.get('start', 0),
                   duration_seconds=kwargs.get('duration'),
                   debug=kwargs.get('debug', False),
-                  sensitivity=kwargs.get('sensitivity', 0.15))
+                  sensitivity=kwargs.get('sensitivity', 0.15),
+                  mode=kwargs.get('mode', 'clip'))
     
     # 2. Process Audio (Remove Music)
     print("\n--- Audio Processing: Removing Music ---")
@@ -345,6 +387,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Draw bounding boxes instead of blurring for debugging")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold for detections")
     parser.add_argument("--sensitivity", type=float, default=0.15, help="Gender sensitivity (lower = more blurring, default 0.15)")
+    parser.add_argument("--mode", choices=['caffe', 'clip'], default='clip', help="Gender detection engine")
     parser.add_argument("--audio", help="Optional separate audio file to use (e.g. m4a from youtube)")
     args = parser.parse_args()
     
@@ -362,6 +405,7 @@ if __name__ == "__main__":
                  audio_path=args.audio,
                  conf=args.conf, 
                  sensitivity=args.sensitivity,
+                 mode=args.mode,
                  start=start, 
                  duration=duration, 
                  debug=args.debug)
