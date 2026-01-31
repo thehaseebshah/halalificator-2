@@ -8,4 +8,7 @@ dependencies = [
     "ipykernel>=7.1.0",
     "opencv-python>=4.13.0.90",
     "ultralytics>=8.4.9",
+    "open-clip-torch>=2.32.0",
+    "demucs>=4.0.1",
+    "static-ffmpeg>=3.0",
 ]
